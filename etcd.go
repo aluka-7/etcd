@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -59,22 +60,19 @@ func Engine(conf ClientConfig) EtcdServer {
 }
 
 type EtcdServer interface {
-	Add(ctx context.Context, path []string, value string) error
+	Set(ctx context.Context, path []string, value string) error
+	SetExpires(ctx context.Context, path []string, value string, ttl int64) error
 	Delete(ctx context.Context, path []string) error
 	Clazz(ctx context.Context, path []string, clazz interface{}) error
 	Watch(ctx context.Context, path []string, clazz interface{}) error
+	Lock(ctx context.Context, path []string, ttl int64) (m *concurrency.Mutex, s *concurrency.Session, err error)
 }
 
 type etcdServer struct {
 	client *clientv3.Client
 }
 
-func (etcdServer) maskPath(app, group, path string) string {
-	key := []string{Namespace, app, group, path}
-	return strings.Join(key, "/")
-}
-
-func (e etcdServer) Add(ctx context.Context, path []string, value string) error {
+func (e etcdServer) Set(ctx context.Context, path []string, value string) (err error) {
 	key := strings.Join(append([]string{Namespace}, path...), "/")
 	s, err := e.client.Put(ctx, key, value)
 	if err != nil {
@@ -82,26 +80,41 @@ func (e etcdServer) Add(ctx context.Context, path []string, value string) error 
 	} else {
 		log.Info().Msgf("创建配置项:%+v", s)
 	}
-	return err
+	return
 }
 
-func (e etcdServer) Delete(ctx context.Context, path []string) error {
+func (e etcdServer) SetExpires(ctx context.Context, path []string, value string, ttl int64) (err error) {
 	key := strings.Join(append([]string{Namespace}, path...), "/")
-	_, err := e.client.Delete(ctx, key)
+	lease, err := e.client.Grant(ctx, ttl)
+	if err != nil {
+		log.Err(err).Msgf("创建租约出错:%+v", err)
+		return
+	}
+	_, err = e.client.Put(context.TODO(), key, value, clientv3.WithLease(lease.ID))
+	if err != nil {
+		log.Err(err).Msgf("创建[%s]的配置信息出错:%+v", path, err)
+	}
+	return
+}
+
+func (e etcdServer) Delete(ctx context.Context, path []string) (err error) {
+	key := strings.Join(append([]string{Namespace}, path...), "/")
+	_, err = e.client.Delete(ctx, key)
 	if err != nil {
 		log.Err(err).Msgf("删除[%s]的配置信息出错:%+v", path, err)
 	} else {
 		log.Info().Msgf("删除配置项:%+v", path)
 	}
-	return err
+	return
 }
 
 // Clazz 获取指定配置项的配置信息，并且将配置信息（JSON格式的）转换为指定的Go结构体，如果获取失败或转换失败则抛出异常。
-func (e etcdServer) Clazz(ctx context.Context, path []string, clazz interface{}) error {
+func (e etcdServer) Clazz(ctx context.Context, path []string, clazz interface{}) (err error) {
 	key := strings.Join(append([]string{Namespace}, path...), "/")
 	res, err := e.client.Get(ctx, key)
 	if err != nil {
 		log.Err(err).Msgf("获取多个配置项[%s]的配置信息出错:%+v", path, err)
+		return
 	} else {
 		log.Info().Msgf("获取多个配置项为:%+v", res)
 	}
@@ -110,7 +123,7 @@ func (e etcdServer) Clazz(ctx context.Context, path []string, clazz interface{})
 		value = kv.Value
 	}
 	err = json.Unmarshal(value, clazz)
-	return err
+	return
 }
 
 func (e etcdServer) Watch(ctx context.Context, path []string, clazz interface{}) error {
@@ -130,4 +143,21 @@ func (e etcdServer) Watch(ctx context.Context, path []string, clazz interface{})
 		}
 	}
 	return nil
+}
+
+func (e etcdServer) Lock(ctx context.Context, path []string, ttl int64) (m *concurrency.Mutex, s *concurrency.Session, err error) {
+	// 创建一个etcd租约
+	lease, err := e.client.Grant(ctx, ttl)
+	if err != nil {
+		log.Err(err).Msgf("创建租约出错:%+v", err)
+		return
+	}
+	prefix := strings.Join(append([]string{Namespace}, path...), "/")
+	s, err = concurrency.NewSession(e.client, concurrency.WithContext(ctx), concurrency.WithLease(lease.ID))
+	if err != nil {
+		log.Err(err).Msgf("创建会话出错:%+v", err)
+		return
+	}
+	m = concurrency.NewMutex(s, prefix)
+	return
 }
