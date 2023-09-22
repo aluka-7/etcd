@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/aluka-7/etcd"
+	"github.com/aluka-7/etcd/service"
+	"log"
 	"sync"
 	"testing"
 	"time"
@@ -71,4 +73,32 @@ func TestLock(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestRegister(t *testing.T) {
+	conf := etcd.Engine(etcd.NewStoreConfig())
+	ser, err := service.NewServiceRegister(conf.Client(), []string{"service", "web"}, "127.0.0.1:9090", 5)
+	if err != nil {
+		t.Errorf("TestEtcd Error: %+v", err)
+	}
+	// 监听续租相应chan
+	go ser.ListenLeaseRespChan()
+	select {
+	case <-time.After(20 * time.Second):
+		ser.Close()
+	}
+}
+
+func TestDiscovery(t *testing.T) {
+	conf := etcd.Engine(etcd.NewStoreConfig())
+	ser := service.NewServiceDiscovery(conf.Client())
+	defer ser.Close()
+	//监听续租相应chan
+	_ = ser.WatchService([]string{"service", "web"})
+	for {
+		select {
+		case <-time.Tick(5 * time.Second):
+			log.Println(ser.GetServices())
+		}
+	}
 }

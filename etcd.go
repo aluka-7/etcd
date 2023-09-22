@@ -60,6 +60,7 @@ func Engine(conf ClientConfig) EtcdServer {
 }
 
 type EtcdServer interface {
+	Client() *clientv3.Client
 	Set(ctx context.Context, path []string, value string) error
 	SetExpires(ctx context.Context, path []string, value string, ttl int64) error
 	Delete(ctx context.Context, path []string) error
@@ -70,6 +71,10 @@ type EtcdServer interface {
 
 type etcdServer struct {
 	client *clientv3.Client
+}
+
+func (e etcdServer) Client() *clientv3.Client {
+	return e.client
 }
 
 func (e etcdServer) Set(ctx context.Context, path []string, value string) (err error) {

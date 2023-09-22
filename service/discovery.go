@@ -9,7 +9,6 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"strings"
 	"sync"
-	"time"
 )
 
 type (
@@ -31,18 +30,11 @@ type (
 )
 
 // NewServiceDiscovery 新建发现服务
-func NewServiceDiscovery(conf etcd.ClientConfig) Discovery {
+func NewServiceDiscovery(client *clientv3.Client) Discovery {
 	fmt.Println("Loading Aluka Etcd Service Discovery")
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   conf.Endpoints,
-		DialTimeout: time.Duration(conf.DialTimeout) * time.Second,
-	})
-	if err != nil {
-		panic(err)
-	}
 	return &ServiceDiscovery{
 		ctx:        context.Background(),
-		cli:        cli,
+		cli:        client,
 		serverList: make(map[string]string),
 	}
 }
