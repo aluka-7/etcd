@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/aluka-7/etcd"
 	"github.com/aluka-7/etcd/service"
-	"log"
 	"sync"
 	"testing"
 	"time"
@@ -94,11 +93,11 @@ func TestDiscovery(t *testing.T) {
 	ser := service.NewServiceDiscovery(conf.Client())
 	defer ser.Close()
 	//监听续租相应chan
-	_ = ser.WatchService([]string{"service", "web"})
+	_ = ser.WatchService([]string{"service"})
 	for {
 		select {
 		case <-time.Tick(5 * time.Second):
-			log.Println(ser.GetServices())
+			t.Log(ser.GetServices())
 		}
 	}
 }

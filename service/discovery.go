@@ -76,7 +76,7 @@ func (s *ServiceDiscovery) SetServiceList(key, val string) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.serverList[key] = string(val)
-	log.Info().Msgf("put key :", key, "val:", val)
+	log.Info().Msgf("put key:", key, "val:", val)
 }
 
 // DelServiceList 删除服务地址
